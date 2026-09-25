@@ -37,15 +37,14 @@ jobs:
 
       - name: Commit updated database
         run: |
-          DB_PATH="data/yt_social_listening.db"
+          DB_PATH="data/yt_social_listening.duckdb"
 
           if [ ! -f "$DB_PATH" ]; then
             echo "Database was not created; nothing to commit."
             exit 0
           fi
 
-          # Force-add because project .gitignore rules exclude *.db files.
-          git add -f "$DB_PATH"
+          git add "$DB_PATH"
 
           if git diff --cached --quiet -- "$DB_PATH"; then
             echo "Database has not changed."

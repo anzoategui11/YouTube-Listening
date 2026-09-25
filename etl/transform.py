@@ -1,6 +1,6 @@
 """Transform YouTube API responses into flat records for storage."""
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 
@@ -28,7 +28,9 @@ def transform_video_stats(
             "channel_id": channel_id,
             "date": snapshot_date,
             "title": video["title"],
-            "published_at": video["published_at"],
+            "published_at": datetime.fromisoformat(
+                video["published_at"].removesuffix("Z")
+            ).strftime("%Y-%m-%d %H:%M:%S"),
             "view_count": video["view_count"],
             "like_count": video["like_count"],
             "comment_count": video["comment_count"],
