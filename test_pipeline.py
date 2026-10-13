@@ -1,4 +1,8 @@
-"""End-to-end test for fetching, transforming, and storing YouTube data."""
+"""End-to-end test for fetching, transforming, and storing YouTube data.
+
+Runs the full pipeline against the first configured channel and reports
+how many records landed in the database. Requires a valid YOUTUBE_API_KEY.
+"""
 
 from config import CHANNEL_IDS
 from etl.load_db import (
@@ -18,6 +22,7 @@ def main() -> None:
 
     channel_id = CHANNEL_IDS[0]
 
+    # Same steps as etl/main.process_channel, run against one channel.
     init_db(DB_PATH)
 
     channel_stats = get_channel_stats(channel_id)

@@ -17,8 +17,12 @@ class YouTubeAPIError(RuntimeError):
 
 class YouTubeQuotaError(YouTubeAPIError):
     """Raised when the YouTube API reports a quota or rate-limit failure."""
+    # Kept as a separate exception so callers can, e.g., back off or skip
+    # a channel instead of treating it like a generic API failure.
 
 
+# Error "reasons" with which the API flags quota/rate-limit problems.
+# Compared against the reasons returned in the error payload of an HttpError.
 _QUOTA_REASONS = {
     "dailyLimitExceeded",
     "quotaExceeded",
@@ -47,6 +51,11 @@ def _get_youtube_service() -> Any:
 
 
 def _execute(request: Any, operation: str) -> dict[str, Any]:
+    """Execute an API request, translating HTTP errors into typed exceptions.
+
+    ``operation`` is a short human-readable phrase ("retrieving channel
+    statistics") used to describe the failing step in error messages.
+    """
     try:
         return request.execute()
     except HttpError as exc:
@@ -54,6 +63,8 @@ def _execute(request: Any, operation: str) -> dict[str, Any]:
         message = getattr(exc, "error_details", None) or str(exc)
         reasons: set[str] = set()
 
+        # The API returns the failure details as JSON in the response body;
+        # fall back to the raw error text if the body is missing or malformed.
         try:
             payload = json.loads(exc.content)
             error_payload = payload.get("error", {})
@@ -66,6 +77,8 @@ def _execute(request: Any, operation: str) -> dict[str, Any]:
         except (AttributeError, TypeError, ValueError):
             pass
 
+        # Quota/rate-limit failures can surface as an HTTP 429, as a specific
+        # error "reason", or only in the message text — check all three.
         normalized_message = str(message).lower()
         if (
             status == 429
@@ -165,6 +178,8 @@ def get_recent_videos(channel_id: str, max_results: int = 10) -> list[dict[str, 
     max_results = _validate_max_results(max_results)
     youtube = _get_youtube_service()
 
+    # Step 1: search returns the channel's latest video IDs, newest first.
+    # The search request is cheap (part="id" only) and establishes recency.
     search_response = _execute(
         youtube.search().list(
             part="id",
@@ -183,6 +198,9 @@ def get_recent_videos(channel_id: str, max_results: int = 10) -> list[dict[str, 
     if not video_ids:
         return []
 
+    # Step 2: fetch full snippet/statistics for all found videos in one
+    # batched request, then re-map by ID so we can preserve the recency
+    # order from the search (the videos endpoint order is not guaranteed).
     videos_response = _execute(
         youtube.videos().list(
             part="snippet,statistics",
@@ -197,6 +215,8 @@ def get_recent_videos(channel_id: str, max_results: int = 10) -> list[dict[str, 
     for video_id in video_ids:
         video = videos_by_id.get(video_id)
         if video is None:
+            # Unlisted/removed videos can appear in search but not in the
+            # videos response; skip them instead of failing the whole batch.
             continue
 
         snippet = video.get("snippet", {})

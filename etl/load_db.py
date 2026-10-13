@@ -1,4 +1,13 @@
-"""DuckDB persistence helpers for transformed YouTube data."""
+"""DuckDB persistence helpers for transformed YouTube data.
+
+The schema follows a small star-style layout:
+  * dim_channels        - one row per channel (name kept up to date)
+  * fact_channel_stats  - daily snapshots of channel-level counters
+  * fact_video_stats    - daily snapshots per video
+
+All writes use INSERT OR REPLACE keyed on the primary key, so re-running
+the pipeline on the same day is idempotent (the snapshot is overwritten).
+"""
 
 from __future__ import annotations
 
@@ -10,6 +19,8 @@ from typing import Any
 import duckdb
 
 
+# Resolved relative to this file, so the path stays valid regardless of
+# the current working directory when the pipeline is invoked.
 DB_PATH = (
     Path(__file__).resolve().parent.parent
     / "data"
@@ -19,8 +30,13 @@ DB_PATH = (
 
 @contextmanager
 def _connection(db_path: str | Path) -> Iterator[duckdb.DuckDBPyConnection]:
+    """Yield a DuckDB connection wrapped in a transaction.
+
+    Commits on success, rolls back on any error, and always closes the
+    connection so no file handles leak.
+    """
     path = Path(db_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True)  # ensure the data dir exists
     connection = duckdb.connect(str(path))
     try:
         connection.execute("BEGIN TRANSACTION")
@@ -37,6 +53,8 @@ def _connection(db_path: str | Path) -> Iterator[duckdb.DuckDBPyConnection]:
 
 def init_db(db_path: str | Path = DB_PATH) -> None:
     """Create the database and all required tables if they do not exist."""
+    # One statement per table; CREATE TABLE IF NOT EXISTS makes this safe
+    # to call on every pipeline run.
     statements = (
         """
         CREATE TABLE IF NOT EXISTS dim_channels (
@@ -120,6 +138,8 @@ def upsert_video_stats(
     db_path: str | Path, video_stats_list: list[dict[str, Any]]
 ) -> None:
     """Insert or replace multiple video statistics snapshots by primary key."""
+    # Project records into row tuples up front so the executemany call below
+    # stays a simple ?-placeholder statement.
     rows = [
         (
             video["video_id"],
@@ -135,7 +155,7 @@ def upsert_video_stats(
     ]
 
     if not rows:
-        return
+        return  # nothing to write; skip the (wasted) transaction
 
     with _connection(db_path) as connection:
         connection.executemany(

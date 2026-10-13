@@ -1,4 +1,9 @@
-"""Quick manual test for the YouTube API client."""
+"""Quick manual test for the YouTube API client.
+
+Prints channel stats and recent videos for the first configured channel.
+Useful for checking the API key and the response shapes without touching
+the database.
+"""
 
 from pprint import pprint
 
